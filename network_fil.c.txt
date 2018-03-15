@@ -1,0 +1,278 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <arpa/inet.h>
+#include <sys/socket.h>
+#include <net/ethernet.h> // ether_header *
+#include <linux/ip.h>
+#include <linux/tcp.h>
+#include <netinet/in.h>
+#include <linux/udp.h>
+#include <signal.h>
+
+void err_quit(const char *message);
+void err_sys (const char *message);
+void menu();
+void sel_pro();
+void sel_app();
+void view_set();
+void sig_handler(int signo);
+
+int sel_menu=1;
+int sel_protocol=0;
+int fil_tcp[3]={1,1,1};	// telnet, ftp, HTTP 캡쳐 여부확인	1 = Yes	0 = No
+int fil_udp[1]={1}; //DNS
+
+int main(int argc, char *argv[]){
+	FILE *FP; // 파일 오픈을 위한 포인터
+
+	system("clear");
+
+	fp = fopen("report.txt", "at+"); // report.txt를 만들고 수정
+
+	menu();
+    int sockfd; // raw socket 생성
+    if ((sockfd = socket(PF_PACKET,SOCK_RAW,htons(ETH_P_ALL)))<0)
+        err_sys("socket error");
+	char packet[512];
+	memset(packet,0, sizeof(packet));
+
+	signal(SIGINT,sig_handler); //Ctrl^c 입력 시 캡쳐 종료 시그널
+
+    for ( ; ; ){	
+        uint8_t buff[ETH_FRAME_LEN];
+        int n, i; // raw data 수신
+        if ((n = read(sockfd,buff,ETH_FRAME_LEN))<0)
+            err_sys("read error");
+
+	
+	struct iphdr *iph = (struct iphdr *)((void*)buff+sizeof(struct ether_header)); 			//IP헤더 선언
+if(iph->protocol==6 ||iph->protocol==17){
+	//printf("Total %d bytes received...\n",n);
+      
+    switch(iph->protocol) //Ip header->protocol 값 비교 
+    {  
+        case 6: //  tcp값을 받을 경우
+	{ 
+	struct tcphdr *tcph =(struct tcphdr *)((void *)buff+sizeof(struct ether_header)+ sizeof(struct iphdr)); //tcp헤더 선언
+	if((ntohs(tcph->dest)==23)||(ntohs(tcph->source)==23)&&fil_tcp[0]){ // telnet일 경우
+		printf("== Protocol            : TCP\n");
+		printf("Application : Telnet\n");
+		printf("Destination port : %d\n", ntohs(tcph->dest));
+        printf("sequence : %u\n", ntohl(tcph->seq));
+        printf("Acknowledge Number : %u\n", ntohl(tcph->ack_seq));	
+		
+		fprintf(fp,"== Protocol            : TCP\n");
+		fprintf(fp,"Application : Telnet\n");
+		fprintf(fp,"Destination port : %d\n", ntohs(tcph->dest));
+		fprintf(fp,"sequence : %u\n", ntohl(tcph->seq));
+		fprintf(fp,"Acknowledge Number : %u\n", ntohl(tcph->ack_seq));
+	}
+	else if(ntohs(tcph->source)==21&&fil_tcp[1]){  // ftp일 경우
+		printf("== Protocol            : TCP\n");
+		printf("Applocation : ftp\n");
+		printf("Destination port : %d\n", ntohs(tcph->dest));
+        printf("sequence : %u\n", ntohl(tcph->seq));
+        printf("Acknowledge Number : %u\n", ntohl(tcph->ack_seq));	
+		
+		fprintf(fp,"== Protocol            : TCP\n");
+		fprintf(fp,"Applocation : ftp\n");
+		fprintf(fp,"Destination port : %d\n", ntohs(tcph->dest));
+		fprintf(fp,"sequence : %u\n", ntohl(tcph->seq));
+		fprintf(fp,"Acknowledge Number : %u\n", ntohl(tcph->ack_seq));
+	}
+	else if(ntohs(tcph->source)==80&&fil_tcp[2]){	// HTTP일 경우
+		printf("== Protocol            : TCP\n");
+		printf("Application : HTTP \n");
+		printf("Destination port : %d\n", ntohs(tcph->dest));
+		printf("sequence : %u\n", ntohl(tcph->seq));
+		printf("Acknowledge Number : %u\n", ntohl(tcph->ack_seq));
+
+		fprintf(fp,"== Protocol            : TCP\n");
+		fprintf(fp,"Application : HTTP \n");
+		fprintf(fp,"Destination port : %d\n", ntohs(tcph->dest));
+		fprintf(fp,"sequence : %u\n", ntohl(tcph->seq));
+		fprintf(fp,"Acknowledge Number : %u\n", ntohl(tcph->ack_seq));
+	}
+            break;  
+	}
+        case 17:  // UDP일 경우
+	{
+		struct udphdr *udph=(struct udphdr *)((void*)buff+sizeof(struct ether_header)+sizeof(struct iphdr));		//udp 헤더 설정
+		if(ntohs(udph->source)==53&&(fil_udp[0])){ // DNS일 경우
+			printf("== Protocl 		: UDP\n");
+			printf("Protocol	: UDP\n");
+			printf("Application 	: DNS\n");
+			printf("Destination Port : %d\n", ntohs(udph->dest));
+
+			fprintf(fp,"== Protocl 		: UDP\n");
+			fprintf(fp,"Protocol	: UDP\n");
+			fprintf(fp,"Application 	: DNS\n");
+			fprintf(fp,"Destination Port : %d\n", ntohs(udph->dest));
+
+		}
+   	 break;  
+	}
+        default:  // 그 외일 경우
+            break;  
+    	}  
+	}
+    }
+	fclose(fp); //  파일 끝내기
+}
+
+ 
+
+void err_quit(const char *message){
+    fputs(message,stderr);
+    fputc('\n' ,stderr);
+    exit(1);
+}
+
+ 
+
+void err_sys(const char *message){
+    exit(1);
+}
+
+void menu(){			// menu 인터페이스 
+printf("=======================\n");
+printf("Pactket Capture System \n");
+printf("=======================\n");
+printf("1.Capture Packet\n");		// 캡쳐 시작
+printf("2.Filtter Setting\n");		// 필터 세팅
+printf("3.View Settings\n");		// 현재 필터 확인
+printf("0.Exit\n");
+printf(">>>");
+
+scanf("%d",&sel_menu);
+	system("clear");
+	if(sel_menu==1){
+	printf("Capturing Start!!!!\n");
+	}
+
+	else if(sel_menu==2){
+	sel_pro();
+	}
+	else if(sel_menu==3){
+	view_set();
+	}
+	else if(sel_menu==0){
+	exit(1);
+	}
+	else
+	printf("Please select correct menu ... \n");
+}
+
+void sel_pro(){	//protocol 설정 인터페이스
+printf("======================\n");
+printf("    Select Protocol   \n");
+printf("=====================\n");
+printf("1. TCP\n");
+printf("2. UDP\n");
+printf("0. back\n");
+printf(">>>");
+scanf("%d",&sel_protocol);
+system("clear");
+	if(sel_protocol==0){
+	menu();
+	}
+	else if(sel_protocol<=2)
+	{
+	sel_app();
+	}
+	else
+	{
+	sel_pro();
+	printf("Please select correct Protocol ... \n");
+	}
+}
+
+void sel_app(){	//application 설정 인터페이스
+int i=0;
+printf("=====================\n");
+printf("     Select App      \n");
+printf("=====================\n");
+	if(sel_protocol==1){ //TCP를 선택했을 경우
+	printf("1. Telnet\n");
+	printf("2. FTP\n");
+	printf("3. HTTP\n");
+	printf("0.back\n");
+	printf(">>>");
+	scanf("%d",&i);
+	system("clear");
+		if(i==0){
+		sel_pro();
+		}
+		else if(i<=3){
+			if(fil_tcp[i-1]==1)	fil_tcp[i-1]=0;
+			else if(fil_tcp[i-1]==0) fil_tcp[i-1]=1;
+		printf("setting complete!\n");
+		sel_app();
+		}
+		else{
+		sel_app();
+		printf("Please select correct TCP ... \n");
+		}
+	}
+	else if(sel_protocol==2){ // UDP를 선택했을 경우
+	int j=0;
+	printf("1. DNS\n");
+	printf("0. back\n");
+	printf(">>>");
+	scanf("%d",&j);
+	system("clear");
+		if(j==0){
+		sel_pro();
+		}
+		else if(j==1)
+		{
+			if(fil_udp[j-1]==1)	fil_udp[j-1]=0;
+			else if(fil_udp[j-1]==0) fil_udp[j-1]=1;
+			printf("UDP setting complete!\n");
+			sel_app();
+		}
+		else{
+		printf("Please select correct UDP ... \n");
+		sel_app();
+		}
+	}
+}
+
+void view_set()		// 현재 필터 세팅 확인
+{
+char *tmp;
+system("clear");
+printf("=====================\n");
+printf("	TCP\n");
+fprintf(fp,"=====================\n");
+fprintf(fp,"	TCP\n");
+	if(fil_tcp[0]==0) tmp="No";
+	else tmp="Yes";		
+	printf("telnet :	%s\n",tmp);	
+	fprintf(fp,"telnet :	%s\n",tmp);
+	if(fil_tcp[1]==0) tmp="No";
+	else tmp="Yes";
+	printf("ftp :		%s\n",tmp);
+	fprintf(fp,"ftp :		%s\n",tmp);
+	if(fil_tcp[2]==0) tmp="No";
+	else tmp="Yes";
+	printf("HTTP :		%s\n",tmp);
+	fprintf(fp,"HTTP :		%s\n",tmp);
+printf("======================\n");
+printf("	UDP\n");
+fprintf(fp,"======================\n");
+fprintf(fp,"	UDP\n");
+	if(fil_udp[0]==0)	tmp="No";
+	else tmp="Yes";
+	printf("DNS : 		%s\n\n\n",tmp);
+	fprintf(fp,"DNS : 		%s\n\n\n",tmp);
+menu();
+}
+
+void sig_handler(int signo){	// Ctrl^c 시그널로 캡쳐 중지
+system("clear");
+printf("Capture stop!\n");
+menu();
+}
